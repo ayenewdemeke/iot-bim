@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import ReferencePointModal from "./ReferencePointModal";
 
 declare global {
