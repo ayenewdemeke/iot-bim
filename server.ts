@@ -9,7 +9,7 @@ import { gpsToModel, ReferencePoint } from './lib/gps-converter';
 import { getDb } from './lib/db';
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = 'localhost';
+const hostname = '0.0.0.0';
 const port = parseInt(process.env.PORT || '3000', 10);
 
 const app = next({ dev, hostname, port });
@@ -17,7 +17,7 @@ const handle = app.getRequestHandler();
 
 // Initialize database before starting server
 initDb().then(() => {
-  console.log('Database initialized successfully');
+  // Database initialized
 }).catch((err) => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
@@ -78,8 +78,6 @@ app.prepare().then(() => {
                       // fallback to meters
                       modelUnitScale = 1.0;
                     }
-                    
-                    console.log('[GPS] Using model unit:', modelUnit, 'scale (meters to unit):', modelUnitScale);
                   }
                   
                   // Get reference point if all values are present
@@ -103,9 +101,7 @@ app.prepare().then(() => {
                         elev: row.refGpsElev,
                       },
                     };
-                    console.log('[GPS] Using database reference point:', referencePoint);
                   } else {
-                    console.warn('[GPS] Reference point not set in database. GPS conversion will fail.');
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ 
                       error: 'Reference point not configured. Please set a reference point for this model first.' 
@@ -133,8 +129,6 @@ app.prepare().then(() => {
                 lon: data.lon,
                 elev: data.elev,
               }, modelUnitScale, referencePoint);
-              console.log('[GPS] Received:', { lat: data.lat, lon: data.lon, elev: data.elev });
-              console.log('[GPS] Converted to model:', modelCoords, 'with modelUnitScale:', modelUnitScale);
             } else if (typeof data.x === 'number' && typeof data.y === 'number' && typeof data.z === 'number') {
               // Use model coordinates directly
               modelCoords = { x: data.x, y: data.y, z: data.z };
@@ -154,7 +148,6 @@ app.prepare().then(() => {
             };
 
             io.emit('pose', poseData);
-            console.log('[Sensor] Broadcasted:', poseData);
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, data: poseData }));
@@ -185,8 +178,6 @@ app.prepare().then(() => {
   });
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-
     // Send initial position on connect
     socket.emit('pose', {
       actorId: 'worker_1',
@@ -198,7 +189,7 @@ app.prepare().then(() => {
     });
 
     socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
+      // Client disconnected
     });
   });
 
@@ -222,6 +213,6 @@ app.prepare().then(() => {
   */
 
   server.listen(port, () => {
-    console.log(`> Ready on http://${hostname}:${port}`);
+    // Server ready
   });
 });

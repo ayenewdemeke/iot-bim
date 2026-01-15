@@ -44,7 +44,7 @@ function ViewerContent() {
           setShowRefPointModal(true);
         }
       } catch (err) {
-        console.error("Failed to check reference point:", err);
+        // Failed to check reference point
       } finally {
         setCheckingRefPoint(false);
       }
@@ -90,11 +90,9 @@ function ViewerContent() {
               // Get global offset for coordinate conversion
               const data = model.getData();
               const globalOffset = data?.globalOffset || { x: 0, y: 0, z: 0 };
-              console.log('[Viewer] APS Model Global Offset:', globalOffset);
 
               const APS_THREE = window.THREE;
               if (!APS_THREE) {
-                console.error("window.THREE not available (Viewer not fully initialized).");
                 return;
               }
 
@@ -204,7 +202,6 @@ function ViewerContent() {
                   // Example: if model is in mm, modelUnitScale = 0.001, so scale worker by 1/0.001 = 1000
                   const scaleFactor = 1 / modelUnitScale;
                   convertedModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
-                  console.log('[Viewer] Worker scale factor for model units:', { modelUnitString, modelUnitScale, scaleFactor });
                   
                   // Save model unit string to database only if not already set
                   fetch(`/api/aps/models/${modelId}/unit-scale`)
@@ -218,7 +215,7 @@ function ViewerContent() {
                         });
                       }
                     })
-                    .catch(err => console.error('Failed to save model unit:', err));
+                    .catch(err => {/* Failed to save model unit */});
                   
                   // Rotate to stand upright (90 degrees around X-axis)
                   convertedModel.rotation.x = Math.PI / 2;
@@ -245,10 +242,6 @@ function ViewerContent() {
                     
                     m.position.set(overlayX, overlayY, overlayZ);
                     
-                    console.log('[Overlay] Position - Raw:', { x: msg.x, y: msg.y, z: msg.z }, 
-                                'Offset:', globalOffset, 
-                                'Final:', { x: overlayX, y: overlayY, z: overlayZ });
-                    
                     // Apply rotation around Y-axis (keeping X-axis rotation for upright pose)
                     if (msg.rotation !== undefined) {
                       m.rotation.y = msg.rotation * (Math.PI / 180); // convert degrees to radians
@@ -259,13 +252,12 @@ function ViewerContent() {
                 },
                 undefined,
                 (error: any) => {
-                  console.error("Error loading worker3.glb:", error);
-                  // Fallback: you could create simple geometry here if needed
+                  // Error loading worker model
                 }
               );
             });
           },
-          (err: any) => console.error("Document load failed:", err)
+          (err: any) => {/* Document load failed */}
         );
       });
     })();
