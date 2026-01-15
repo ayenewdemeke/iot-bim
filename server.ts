@@ -51,11 +51,16 @@ app.prepare().then(() => {
                   `SELECT "modelUnit", "refModelX", "refModelY", "refModelZ", 
                           "refGpsLat", "refGpsLon", "refGpsElev"
                    FROM model_entity 
+                   WHERE "refGpsLat" IS NOT NULL 
+                     AND "refGpsLon" IS NOT NULL 
+                     AND "refGpsElev" IS NOT NULL
                    LIMIT 1`
                 );
                 
+                console.log('[DEBUG] Query returned', result.rows.length, 'rows');
                 if (result.rows.length > 0) {
                   const row = result.rows[0];
+                  console.log('[DEBUG] Reference point data:', row);
                   
                   // Get model unit scale (converts from meters to model unit)
                   if (row.modelUnit) {
