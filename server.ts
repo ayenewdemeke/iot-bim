@@ -103,6 +103,7 @@ app.prepare().then(() => {
                       },
                     };
                   } else {
+                    console.log('[DEBUG] Reference point NOT configured - returning error');
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ 
                       error: 'Reference point not configured. Please set a reference point for this model first.' 
@@ -118,6 +119,7 @@ app.prepare().then(() => {
               }
               
               if (!referencePoint) {
+                console.log('[DEBUG] Reference point is null - returning error');
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
                   error: 'Reference point not configured. Please set a reference point for this model first.' 
