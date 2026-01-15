@@ -35,6 +35,7 @@ app.prepare().then(() => {
         req.on('end', async () => {
           try {
             const data = JSON.parse(body);
+            console.log('[DEBUG] Received sensor data:', JSON.stringify(data));
             
             // Check if data contains GPS coordinates or model coordinates
             let modelCoords;
@@ -148,10 +149,12 @@ app.prepare().then(() => {
             };
 
             io.emit('pose', poseData);
+            console.log('[DEBUG] Emitted pose data:', JSON.stringify(poseData));
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, data: poseData }));
           } catch (err) {
+            console.error('[DEBUG] Error processing sensor update:', err);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid JSON' }));
           }
@@ -170,14 +173,13 @@ app.prepare().then(() => {
   // Setup Socket.io
   const io = new SocketIOServer(server, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' 
-        ? process.env.FRONTEND_URL || 'http://localhost:3000'
-        : 'http://localhost:3000',
+      origin: '*',  // Allow all origins for now (change later for production security)
       methods: ['GET', 'POST']
     }
   });
 
   io.on('connection', (socket) => {
+    console.log('[DEBUG] Socket.io client connected:', socket.id);
     // Send initial position on connect
     socket.emit('pose', {
       actorId: 'worker_1',
@@ -213,6 +215,6 @@ app.prepare().then(() => {
   */
 
   server.listen(port, () => {
-    // Server ready
+    console.log(`[DEBUG] Server ready on http://${hostname}:${port}`);
   });
 });
