@@ -73,6 +73,15 @@ export async function initDb() {
     END $$;
   `);
   
+  // Fix sequence issue: sync the id sequence with the max id in the table
+  await db.query(`
+    SELECT setval(
+      pg_get_serial_sequence('model_entity', 'id'),
+      COALESCE((SELECT MAX(id) FROM model_entity), 0) + 1,
+      false
+    );
+  `);
+  
   console.log('Database initialized');
 }
 

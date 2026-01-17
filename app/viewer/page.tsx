@@ -20,8 +20,9 @@ function ViewerContent() {
 
   const divRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
-  const actorRef = useRef<any>(null);
+  const actorsRef = useRef<Map<string, any>>(new Map()); // Map of actorId -> 3D model object
   const socketRef = useRef<Socket | null>(null);
+  const globalOffsetRef = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
 
   const [ready, setReady] = useState(false);
   const [showRefPointModal, setShowRefPointModal] = useState(false);
@@ -90,6 +91,9 @@ function ViewerContent() {
               // Get global offset for coordinate conversion
               const data = model.getData();
               const globalOffset = data?.globalOffset || { x: 0, y: 0, z: 0 };
+              globalOffsetRef.current = globalOffset;
+              
+              console.log('[Global Offset]', globalOffset);
 
               const APS_THREE = window.THREE;
               if (!APS_THREE) {
@@ -102,159 +106,172 @@ function ViewerContent() {
               try { viewer.impl.removeOverlayScene(overlayName); } catch {}
               viewer.impl.createOverlayScene(overlayName);
 
-              // ---- Load the actual worker.glb model ----
-              const loader = new GLTFLoader();
-              
-              loader.load(
-                '/models/model.glb',
-                (gltf: any) => {
-                  if (cancelled) return;
+              // Function to load a model for a specific actor
+              const loadActorModel = (actorId: string, modelPath: string, callback?: () => void) => {
+                // Check if actor already loaded or being loaded
+                if (actorsRef.current.has(actorId)) {
+                  if (callback) callback();
+                  return;
+                }
 
-                  // Convert loaded model to use APS_THREE (viewer's THREE instance)
-                  const convertedModel = new APS_THREE.Group();
-                  
-                  gltf.scene.traverse((child: any) => {
-                    if (child.isMesh) {
-                      // Clone geometry and material using APS_THREE
-                      const geometry = new APS_THREE.BufferGeometry();
-                      
-                      // Copy attributes
-                      if (child.geometry.attributes.position) {
-                        geometry.setAttribute('position', 
-                          new APS_THREE.BufferAttribute(child.geometry.attributes.position.array, 3));
-                      }
-                      if (child.geometry.attributes.normal) {
-                        geometry.setAttribute('normal',
-                          new APS_THREE.BufferAttribute(child.geometry.attributes.normal.array, 3));
-                      }
-                      if (child.geometry.attributes.uv) {
-                        geometry.setAttribute('uv',
-                          new APS_THREE.BufferAttribute(child.geometry.attributes.uv.array, 2));
-                      }
-                      if (child.geometry.index) {
-                        geometry.setIndex(
-                          new APS_THREE.BufferAttribute(child.geometry.index.array, 1));
-                      }
-                      
-                      // Create material with proper color and texture handling
-                      const materialProps: any = {
-                        side: APS_THREE.DoubleSide,
-                      };
-                      
-                      // Copy color if available
-                      if (child.material.color) {
-                        materialProps.color = new APS_THREE.Color(
-                          child.material.color.r,
-                          child.material.color.g,
-                          child.material.color.b
-                        );
-                      }
-                      
-                      // Copy texture if available
-                      if (child.material.map) {
-                        const texture = new APS_THREE.Texture(child.material.map.image);
-                        texture.needsUpdate = true;
-                        texture.wrapS = child.material.map.wrapS;
-                        texture.wrapT = child.material.map.wrapT;
-                        materialProps.map = texture;
-                      }
-                      
-                      // Copy other material properties
-                      if (child.material.transparent !== undefined) {
-                        materialProps.transparent = child.material.transparent;
-                      }
-                      if (child.material.opacity !== undefined) {
-                        materialProps.opacity = child.material.opacity;
-                      }
-                      if (child.material.metalness !== undefined) {
-                        materialProps.metalness = child.material.metalness;
-                      }
-                      if (child.material.roughness !== undefined) {
-                        materialProps.roughness = child.material.roughness;
-                      }
-                      
-                      const material = new APS_THREE.MeshPhongMaterial(materialProps);
-                      
-                      // Create mesh with APS_THREE
-                      const mesh = new APS_THREE.Mesh(geometry, material);
-                      mesh.position.copy(child.position);
-                      mesh.rotation.copy(child.rotation);
-                      mesh.scale.copy(child.scale);
-                      mesh.castShadow = true;
-                      mesh.receiveShadow = true;
-                      
-                      convertedModel.add(mesh);
-                    }
-                  });
-                  
-                  // Adjust scale
-                  // Make scale unit-agnostic: assume worker.glb is in meters
-                  // Autodesk model units: getUnitScale() returns scale to meters (e.g., 0.001 for mm, 1 for m)
-                  let modelUnitScale = 1;
-                  let modelUnitString = 'm';
-                  if (typeof model.getUnitScale === 'function') {
-                    modelUnitScale = model.getUnitScale();
-                  }
-                  if (typeof model.getUnitString === 'function') {
-                    modelUnitString = model.getUnitString();
-                  }
-                  // If model units are not meters, scale worker accordingly
-                  // Example: if model is in mm, modelUnitScale = 0.001, so scale worker by 1/0.001 = 1000
-                  const scaleFactor = 1 / modelUnitScale;
-                  convertedModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
-                  
-                  // Save model unit string to database only if not already set
-                  fetch(`/api/aps/models/${modelId}/unit-scale`)
-                    .then(res => res.json())
-                    .then(data => {
-                      if (!data.modelUnit) {
-                        return fetch(`/api/aps/models/${modelId}/unit-scale`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ modelUnit: modelUnitString })
-                        });
-                      }
-                    })
-                    .catch(err => {/* Failed to save model unit */});
-                  
-                  // Rotate to stand upright (90 degrees around X-axis)
-                  convertedModel.rotation.x = Math.PI / 2;
-                  
-                  // Place at origin - will be updated by socket stream
-                  convertedModel.position.set(0, 0, 0);
-                  
-                  actorRef.current = convertedModel;
-                  viewer.impl.addOverlay(overlayName, convertedModel);
-                  viewer.impl.invalidate(true, true, true);
+                // Mark as loading immediately to prevent duplicates
+                actorsRef.current.set(actorId, null);
+                console.log(`[Actor] Loading model for ${actorId}: ${modelPath}`);
 
-                  // ---- Socket stream drives the person position ----
-                  const socket = io({ transports: ["websocket"] });
-                  socketRef.current = socket;
+                const loader = new GLTFLoader();
+                
+                loader.load(
+                  modelPath,
+                  (gltf: any) => {
+                    if (cancelled) return;
 
-                  socket.on("pose", (msg: any) => {
-                    const m = actorRef.current;
-                    if (!m) return;
-
-                    // Subtract global offset to convert Revit coords to viewer coords
-                    const overlayX = msg.x - globalOffset.x;
-                    const overlayY = msg.y - globalOffset.y;
-                    const overlayZ = msg.z - globalOffset.z;
+                    // Convert loaded model to use APS_THREE (viewer's THREE instance)
+                    const convertedModel = new APS_THREE.Group();
                     
-                    m.position.set(overlayX, overlayY, overlayZ);
+                    gltf.scene.traverse((child: any) => {
+                      if (child.isMesh) {
+                        // Clone geometry and material using APS_THREE
+                        const geometry = new APS_THREE.BufferGeometry();
+                        
+                        // Copy attributes
+                        if (child.geometry.attributes.position) {
+                          geometry.setAttribute('position', 
+                            new APS_THREE.BufferAttribute(child.geometry.attributes.position.array, 3));
+                        }
+                        if (child.geometry.attributes.normal) {
+                          geometry.setAttribute('normal',
+                            new APS_THREE.BufferAttribute(child.geometry.attributes.normal.array, 3));
+                        }
+                        if (child.geometry.attributes.uv) {
+                          geometry.setAttribute('uv',
+                            new APS_THREE.BufferAttribute(child.geometry.attributes.uv.array, 2));
+                        }
+                        if (child.geometry.index) {
+                          geometry.setIndex(
+                            new APS_THREE.BufferAttribute(child.geometry.index.array, 1));
+                        }
+                        
+                        // Create material with proper color and texture handling
+                        const materialProps: any = {
+                          side: APS_THREE.DoubleSide,
+                        };
+                        
+                        // Copy color if available
+                        if (child.material.color) {
+                          materialProps.color = new APS_THREE.Color(
+                            child.material.color.r,
+                            child.material.color.g,
+                            child.material.color.b
+                          );
+                        }
+                        
+                        // Copy texture if available
+                        if (child.material.map) {
+                          const texture = new APS_THREE.Texture(child.material.map.image);
+                          texture.needsUpdate = true;
+                          texture.wrapS = child.material.map.wrapS;
+                          texture.wrapT = child.material.map.wrapT;
+                          materialProps.map = texture;
+                        }
+                        
+                        // Copy other material properties
+                        if (child.material.transparent !== undefined) {
+                          materialProps.transparent = child.material.transparent;
+                        }
+                        if (child.material.opacity !== undefined) {
+                          materialProps.opacity = child.material.opacity;
+                        }
+                        if (child.material.metalness !== undefined) {
+                          materialProps.metalness = child.material.metalness;
+                        }
+                        if (child.material.roughness !== undefined) {
+                          materialProps.roughness = child.material.roughness;
+                        }
+                        
+                        const material = new APS_THREE.MeshPhongMaterial(materialProps);
+                        
+                        // Create mesh with APS_THREE
+                        const mesh = new APS_THREE.Mesh(geometry, material);
+                        mesh.position.copy(child.position);
+                        mesh.rotation.copy(child.rotation);
+                        mesh.scale.copy(child.scale);
+                        mesh.castShadow = true;
+                        mesh.receiveShadow = true;
+                        
+                        convertedModel.add(mesh);
+                      }
+                    });
                     
-                    // Apply rotation around Y-axis (keeping X-axis rotation for upright pose)
-                    if (msg.rotation !== undefined) {
-                      m.rotation.y = msg.rotation * (Math.PI / 180); // convert degrees to radians
+                    // Adjust scale based on model units
+                    let modelUnitScale = 1;
+                    if (typeof model.getUnitScale === 'function') {
+                      modelUnitScale = model.getUnitScale();
                     }
+                    
+                    // Simple scale: convert from model units to overlay units
+                    const scaleFactor = 1 / modelUnitScale;
+                    convertedModel.scale.set(scaleFactor * 10, scaleFactor * 10, scaleFactor * 10);
+
+                    // Keep actor upright (rotate 90 degrees around X-axis)
+                    convertedModel.rotation.x = Math.PI / 2;
+                    
+                    // Set initial position at origin
+                    convertedModel.position.set(0, 0, 0);
+
+                    // Add to scene immediately
+                    viewer.impl.addOverlay(overlayName, convertedModel);
+                    actorsRef.current.set(actorId, convertedModel);
+                    
+                    console.log(`[Actor] Loaded ${actorId} with model ${modelPath}`);
                     
                     viewer.impl.invalidate(true, true, true);
-                  });
-                },
-                undefined,
-                (error: any) => {
-                  // Error loading worker model
+                    if (callback) callback();
+                  },
+                  undefined,
+                  (error: any) => {
+                    console.error(`[Actor] Failed to load model for ${actorId} (${modelPath}):`, error);
+                    // Remove from actors map on error so it can be retried
+                    actorsRef.current.delete(actorId);
+                  }
+                );
+              };
+
+              // ---- Socket stream drives actor positions ----
+              const socket = io({ transports: ["websocket"] });
+              socketRef.current = socket;
+
+              socket.on("pose", (msg: any) => {
+                const actorId = msg.actorId || 'worker_1';
+                const modelPath = msg.modelPath || '/models/model.glb';
+                
+                // Log sensor coordinates with full precision
+                if (msg.sourceType === 'gps' && msg.gps) {
+                  console.log(`[${actorId}] lat: ${msg.gps.lat}, lon: ${msg.gps.lon}, alt: ${msg.gps.elev} m`);
+                } else if (msg.sourceType === 'model') {
+                  console.log(`[${actorId}] x: ${msg.x}, y: ${msg.y}, z: ${msg.z}`);
                 }
-              );
+                
+                // Load model for this actor if not already loaded
+                loadActorModel(actorId, modelPath, () => {
+                  // Update position after model is loaded
+                  const actorModel = actorsRef.current.get(actorId);
+                  if (!actorModel) return;
+
+                  // Subtract global offset to convert Revit coords to viewer coords
+                  const overlayX = msg.x - globalOffsetRef.current.x;
+                  const overlayY = msg.y - globalOffsetRef.current.y;
+                  const overlayZ = msg.z - globalOffsetRef.current.z;
+                  
+                  actorModel.position.set(overlayX, overlayY, overlayZ);
+                  
+                  // Apply rotation around Y-axis (keeping X-axis rotation for upright pose)
+                  if (msg.rotation !== undefined) {
+                    actorModel.rotation.y = msg.rotation * (Math.PI / 180); // convert degrees to radians
+                  }
+                  
+                  viewer.impl.invalidate(true, true, true);
+                });
+              });
             });
           },
           (err: any) => {/* Document load failed */}
@@ -277,7 +294,7 @@ function ViewerContent() {
         viewerRef.current = null;
       }
 
-      actorRef.current = null;
+      actorsRef.current.clear();
     };
   }, [ready, modelId]);
 

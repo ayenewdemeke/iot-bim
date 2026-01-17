@@ -15,6 +15,37 @@ const port = parseInt(process.env.PORT || '3000', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
+// Session-based actor model cache
+// Maps actorId to model file path (e.g., 'worker_1' -> '/models/worker.glb')
+const actorModelCache = new Map<string, string>();
+
+/**
+ * Determines the 3D model file to use for a given actorId.
+ * Uses a naming convention: extracts the actor type from actorId prefix.
+ * Examples:
+ *   'worker_1' -> '/models/worker.glb'
+ *   'worker_2' -> '/models/worker.glb'
+ *   'excavator_1' -> '/models/excavator.glb'
+ *   'truck_1' -> '/models/truck.glb'
+ */
+function getModelForActor(actorId: string): string {
+  // Check cache first
+  if (actorModelCache.has(actorId)) {
+    return actorModelCache.get(actorId)!;
+  }
+
+  // Extract actor type from actorId (e.g., 'worker_1' -> 'worker')
+  const actorType = actorId.split('_')[0] || 'worker';
+  const modelPath = `/models/${actorType}.glb`;
+
+  // Cache the result for this session
+  actorModelCache.set(actorId, modelPath);
+  
+  console.log(`[Actor Model] Mapped ${actorId} -> ${modelPath}`);
+  
+  return modelPath;
+}
+
 // Initialize database before starting server
 initDb().then(() => {
   // Database initialized
@@ -35,15 +66,28 @@ app.prepare().then(() => {
         req.on('end', async () => {
           try {
             const data = JSON.parse(body);
-            console.log('[DEBUG] Received sensor data:', JSON.stringify(data));
             
             // Check if data contains GPS coordinates or model coordinates
             let modelCoords;
+            let sourceType = 'model'; // Track whether data came from GPS or model coords
+            let gpsData: { lat: number; lon: number; elev: number } | undefined = undefined;
+            
             if (typeof data.lat === 'number' && typeof data.lon === 'number' && typeof data.elev === 'number') {
+              sourceType = 'gps';
+              gpsData = { lat: data.lat, lon: data.lon, elev: data.elev };
+              
               // Convert GPS to model coordinates
               // Fetch modelUnit and reference point from database
               let modelUnitScale = 1.0; // default to meters (scale 1)
               let referencePoint: ReferencePoint | undefined = undefined;
+              
+              // Get modelId from request data
+              const modelId = data.modelId;
+              if (!modelId) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'modelId is required' }));
+                return;
+              }
               
               try {
                 const db = getDb();
@@ -51,16 +95,12 @@ app.prepare().then(() => {
                   `SELECT "modelUnit", "refModelX", "refModelY", "refModelZ", 
                           "refGpsLat", "refGpsLon", "refGpsElev"
                    FROM model_entity 
-                   WHERE "refGpsLat" IS NOT NULL 
-                     AND "refGpsLon" IS NOT NULL 
-                     AND "refGpsElev" IS NOT NULL
-                   LIMIT 1`
+                   WHERE id = $1`,
+                  [modelId]
                 );
                 
-                console.log('[DEBUG] Query returned', result.rows.length, 'rows');
                 if (result.rows.length > 0) {
                   const row = result.rows[0];
-                  console.log('[DEBUG] Reference point data:', row);
                   
                   // Get model unit scale (converts from meters to model unit)
                   if (row.modelUnit) {
@@ -108,7 +148,6 @@ app.prepare().then(() => {
                       },
                     };
                   } else {
-                    console.log('[DEBUG] Reference point NOT configured - returning error');
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ 
                       error: 'Reference point not configured. Please set a reference point for this model first.' 
@@ -124,7 +163,6 @@ app.prepare().then(() => {
               }
               
               if (!referencePoint) {
-                console.log('[DEBUG] Reference point is null - returning error');
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ 
                   error: 'Reference point not configured. Please set a reference point for this model first.' 
@@ -146,22 +184,27 @@ app.prepare().then(() => {
               return;
             }
 
+            const actorId = data.actorId || 'worker_1';
+            const modelPath = getModelForActor(actorId);
+
             const poseData = {
-              actorId: data.actorId || 'worker_1',
+              actorId: actorId,
+              modelPath: modelPath,
               ts: Date.now(),
               x: modelCoords.x,
               y: modelCoords.y,
               z: modelCoords.z,
               rotation: data.rotation || 0,
+              sourceType: sourceType,
+              gps: gpsData,
             };
 
             io.emit('pose', poseData);
-            console.log('[DEBUG] Emitted pose data:', JSON.stringify(poseData));
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, data: poseData }));
           } catch (err) {
-            console.error('[DEBUG] Error processing sensor update:', err);
+            console.error('Error processing sensor update:', err);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Invalid JSON' }));
           }
@@ -186,10 +229,11 @@ app.prepare().then(() => {
   });
 
   io.on('connection', (socket) => {
-    console.log('[DEBUG] Socket.io client connected:', socket.id);
     // Send initial position on connect
+    const initialActorId = 'worker_1';
     socket.emit('pose', {
-      actorId: 'worker_1',
+      actorId: initialActorId,
+      modelPath: getModelForActor(initialActorId),
       ts: Date.now(),
       x: -4544.3,
       y: 8019.0,
@@ -222,6 +266,6 @@ app.prepare().then(() => {
   */
 
   server.listen(port, () => {
-    console.log(`[DEBUG] Server ready on http://${hostname}:${port}`);
+    // Server listening
   });
 });
