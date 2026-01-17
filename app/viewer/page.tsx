@@ -212,7 +212,7 @@ function ViewerContent() {
                     const scaleFactor = 1 / modelUnitScale;
                     
                     // Apply additional scale reduction for equipment models (they seem to be 1000x too large)
-                    const additionalScale = modelPath.includes('equipment') ? 0.001 : 1;
+                    const additionalScale = modelPath.includes('equipment') ? 0.01 : 1;
                     convertedModel.scale.set(scaleFactor * additionalScale, scaleFactor * additionalScale, scaleFactor * additionalScale);
 
                     // Keep actor upright (rotate 90 degrees around X-axis)
