@@ -210,7 +210,10 @@ function ViewerContent() {
                     
                     // Simple scale: convert from model units to overlay units
                     const scaleFactor = 1 / modelUnitScale;
-                    convertedModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
+                    
+                    // Apply additional scale reduction for equipment models (they seem to be 1000x too large)
+                    const additionalScale = modelPath.includes('equipment') ? 0.001 : 1;
+                    convertedModel.scale.set(scaleFactor * additionalScale, scaleFactor * additionalScale, scaleFactor * additionalScale);
 
                     // Keep actor upright (rotate 90 degrees around X-axis)
                     convertedModel.rotation.x = Math.PI / 2;
