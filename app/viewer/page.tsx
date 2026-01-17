@@ -210,7 +210,7 @@ function ViewerContent() {
                     
                     // Simple scale: convert from model units to overlay units
                     const scaleFactor = 1 / modelUnitScale;
-                    convertedModel.scale.set(scaleFactor * 10, scaleFactor * 10, scaleFactor * 10);
+                    convertedModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
                     // Keep actor upright (rotate 90 degrees around X-axis)
                     convertedModel.rotation.x = Math.PI / 2;
